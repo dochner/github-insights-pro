@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { GithubCommit, GithubContributor, GithubRepo } from '../app/composables/useGithubApi'
 
@@ -162,5 +162,117 @@ describe('repos.store', () => {
     expect(store.commitsByRepo[key]).toEqual(['fresh-sha'])
     expect(store.commitsForRepo(key)).toEqual([freshCommit])
     expect(store.commitsStatusFor(key)).toEqual({ loading: false, error: null })
+  })
+
+  describe('caching', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('skips the network call on a cache hit within the TTL', async () => {
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      const store = useReposStore()
+
+      await store.fetchRepo('vuejs', 'core')
+      await store.fetchRepo('vuejs', 'core')
+
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(1)
+      expect(store.repos[repoKey('vuejs', 'core')]).toEqual(makeRepo())
+    })
+
+    it('re-fetches once the TTL has expired', async () => {
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo({ stargazers_count: 99 }))
+      const store = useReposStore()
+
+      await store.fetchRepo('vuejs', 'core')
+      vi.setSystemTime(Date.now() + 6 * 60 * 1000) // past the 5-minute TTL
+      await store.fetchRepo('vuejs', 'core')
+
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
+      expect(store.repos[repoKey('vuejs', 'core')]).toEqual(makeRepo({ stargazers_count: 99 }))
+    })
+
+    it('bypasses the TTL when force is true', async () => {
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo({ stargazers_count: 7 }))
+      const store = useReposStore()
+
+      await store.fetchRepo('vuejs', 'core')
+      await store.fetchRepo('vuejs', 'core', { force: true })
+
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
+      expect(store.repos[repoKey('vuejs', 'core')]).toEqual(makeRepo({ stargazers_count: 7 }))
+    })
+
+    it('invalidateRepo forces the next fetch without touching other resources or repos', async () => {
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      mockedFetchGithub.mockResolvedValueOnce([makeContributor('alice', 10)])
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo({ stargazers_count: 5 }))
+      const store = useReposStore()
+      const coreKey = repoKey('vuejs', 'core')
+      const routerKey = repoKey('vuejs', 'router')
+
+      await store.fetchRepo('vuejs', 'core')
+      await store.fetchContributors('vuejs', 'core')
+      await store.fetchRepo('vuejs', 'router')
+
+      store.invalidateRepo(coreKey)
+
+      // Contributors cache for the same repo is untouched: still within TTL, so no new call.
+      await store.fetchContributors('vuejs', 'core')
+      // The other repo's cache is untouched: still within TTL, so no new call.
+      await store.fetchRepo('vuejs', 'router')
+      // The invalidated repo/key refetches.
+      await store.fetchRepo('vuejs', 'core')
+
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(4)
+      expect(store.repos[coreKey]).toEqual(makeRepo({ stargazers_count: 5 }))
+      expect(store.repos[routerKey]).toEqual(makeRepo())
+    })
+
+    it('is fresh one millisecond before the TTL and expired exactly at the TTL', async () => {
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo())
+      mockedFetchGithub.mockResolvedValueOnce(makeRepo({ stargazers_count: 99 }))
+      const store = useReposStore()
+
+      await store.fetchRepo('vuejs', 'core')
+
+      vi.setSystemTime(Date.now() + 5 * 60 * 1000 - 1)
+      await store.fetchRepo('vuejs', 'core')
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(1)
+
+      vi.setSystemTime(Date.now() + 1)
+      await store.fetchRepo('vuejs', 'core')
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
+      expect(store.repos[repoKey('vuejs', 'core')]).toEqual(makeRepo({ stargazers_count: 99 }))
+    })
+
+    it('does not let a fetch already in flight resurrect a key invalidated during that fetch', async () => {
+      let resolveFetch!: (value: GithubCommit[]) => void
+      mockedFetchGithub.mockReturnValueOnce(new Promise((resolve) => { resolveFetch = resolve }))
+      const store = useReposStore()
+      const key = repoKey('vuejs', 'core')
+
+      const pending = store.fetchCommits('vuejs', 'core')
+      store.invalidateCommits(key)
+      resolveFetch([makeCommit('sha1', 'alice')])
+      await pending
+
+      // The in-flight response still lands (data isn't discarded)...
+      expect(store.commitsForRepo(key)).toEqual([makeCommit('sha1', 'alice')])
+
+      // ...but the invalidation must not be silently undone: the next call still has to hit the network.
+      mockedFetchGithub.mockResolvedValueOnce([makeCommit('sha2', 'bob')])
+      await store.fetchCommits('vuejs', 'core')
+
+      expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
+      expect(store.commitsForRepo(key)).toEqual([makeCommit('sha2', 'bob')])
+    })
   })
 })

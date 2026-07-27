@@ -1,9 +1,11 @@
+import tailwindcss from '@tailwindcss/vite'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2026-07-27',
   devtools: { enabled: true },
 
-  modules: ['@nuxtjs/tailwindcss', '@pinia/nuxt'],
+  modules: ['@pinia/nuxt'],
 
   typescript: {
     strict: true,
@@ -22,5 +24,11 @@ export default defineNuxtConfig({
     routeRules: {
       '/api/github/**': { cors: true },
     },
+  },
+
+  vite: {
+    plugins: [
+      tailwindcss(),
+    ],
   },
 })

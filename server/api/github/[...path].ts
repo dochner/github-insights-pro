@@ -10,7 +10,8 @@ const GITHUB_API_BASE = 'https://api.github.com'
 
 const RATE_LIMIT_HEADERS_TO_FORWARD = ['x-ratelimit-remaining', 'x-ratelimit-reset'] as const
 
-export default defineEventHandler(async (event) => {
+// Explicit return type breaks a circular-inference error Nitro's typed-router hits on catch-all routes.
+export default defineEventHandler(async (event): Promise<unknown> => {
   const path = getRouterParam(event, 'path')
   if (!path) {
     throw createError({

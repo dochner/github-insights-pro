@@ -122,6 +122,26 @@ function applyCellContent(selection: CellSelection): void {
   })
 }
 
+const ARROW_DELTAS: Record<string, [number, number]> = {
+  ArrowRight: [1, 0],
+  ArrowLeft: [-1, 0],
+  ArrowDown: [0, 1],
+  ArrowUp: [0, -1],
+}
+
+// Matches by col/row (not DOM order) since D3's join order doesn't track visual grid position.
+function focusNeighborCell(group: d3.Selection<SVGGElement, unknown, null, undefined>, current: Cell, key: string): void {
+  const delta = ARROW_DELTAS[key]
+  if (!delta) return
+  const targetCol = current.col + delta[0]
+  const targetRow = current.row + delta[1]
+  const targetNode = group
+    .selectAll<SVGRectElement, Cell>('rect.heatmap-cell')
+    .filter((c) => c.col === targetCol && c.row === targetRow)
+    .node()
+  targetNode?.focus()
+}
+
 // Real D3 selection/data-join against the raw SVG DOM (not a Vue v-for) — this is the project's
 // deliberate proof of low-level D3 control: enter/update/exit with genuine transitions.
 function render(): void {
@@ -152,6 +172,11 @@ function render(): void {
           .attr('fill', (d) => colorFor(d.count))
           .attr('opacity', 0)
         rects.call(applyCellContent)
+        rects.on('keydown', function (event: KeyboardEvent, d: Cell) {
+          if (!ARROW_DELTAS[event.key]) return
+          event.preventDefault()
+          focusNeighborCell(group, d, event.key)
+        })
         rects.transition(t).attr('opacity', 1)
         return rects
       },

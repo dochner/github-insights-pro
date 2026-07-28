@@ -42,7 +42,7 @@ const heatmapData = computed(() => {
             : 'Failed to load commit activity.'
         }}
       </p>
-      <ActivityHeatmap v-else class="mt-2" :data="heatmapData" />
+      <ChartsActivityHeatmap v-else class="mt-2" :data="heatmapData" />
     </section>
   </main>
 </template>

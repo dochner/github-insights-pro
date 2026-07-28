@@ -20,6 +20,24 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 
 export interface FetchOptions {
   force?: boolean
+  since?: string
+}
+
+// GitHub's commits endpoint defaults to per_page=30, single page, with no total-count field — that alone
+// was the heatmap bug (~4 distinct days out of a 364-day window for an active repo). Page at the API max
+// instead and keep requesting until a page comes back short, which is the only page-count-free way to
+// detect "last page" without parsing the `Link` header (fetchGithub only returns parsed JSON, not headers).
+const COMMITS_PER_PAGE = 100
+// 5 pages (<=500 commits) keeps even very active repos (vuejs/core) dense enough to fill the heatmap
+// while bounding worst-case requests per dashboard load — important for GitHub's 60/hour unauthenticated cap.
+const MAX_COMMITS_PAGES = 5
+// Matches ActivityHeatmap's own default `weeks` prop, kept as an independent constant here (the store
+// shouldn't import a component just to reuse its default).
+const COMMITS_DEFAULT_WINDOW_WEEKS = 52
+const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
+
+function defaultCommitsSince(): string {
+  return new Date(Date.now() - COMMITS_DEFAULT_WINDOW_WEEKS * MS_PER_WEEK).toISOString()
 }
 
 // Canonical lookup key (from request args, not response's `full_name`); lowercased since GitHub lookups are case-insensitive.
@@ -131,11 +149,24 @@ export const useReposStore = defineStore('repos', () => {
     commitsRequestIds[key] = requestId
     const invalidationGenAtStart = commitsInvalidationGen[key] ?? 0
     commitsStatus.value[key] = { loading: true, error: null }
+    const since = options.since ?? defaultCommitsSince()
     try {
-      const data = await fetchGithub<GithubCommit[]>(`repos/${owner}/${repo}/commits`)
-      if (commitsRequestIds[key] !== requestId) return // superseded by a newer call for the same key
+      // One logical fetch spanning several HTTP requests: requestId is issued once above, not per page.
+      const allCommits: GithubCommit[] = []
+      for (let page = 1; page <= MAX_COMMITS_PAGES; page += 1) {
+        const data = await fetchGithub<GithubCommit[]>(`repos/${owner}/${repo}/commits`, {
+          per_page: COMMITS_PER_PAGE,
+          since,
+          page,
+        })
+        // Re-checked after every page (not just once at the end) so a superseded call stops
+        // issuing further page requests instead of continuing to fetch pages nobody wants.
+        if (commitsRequestIds[key] !== requestId) return
+        allCommits.push(...data)
+        if (data.length < COMMITS_PER_PAGE) break // short (or empty) page: this was the last one
+      }
       const shas: string[] = []
-      for (const commit of data) {
+      for (const commit of allCommits) {
         commits.value[commit.sha] = commit
         shas.push(commit.sha)
       }

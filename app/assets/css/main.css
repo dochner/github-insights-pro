@@ -1,1 +1,30 @@
 @import 'tailwindcss';
+
+/* Terminal-esque dark palette — exact values from the project owner, not to be tweaked ad hoc. */
+@theme {
+  --color-ink: #0d1117;
+  --color-paper: #e6e4dd;
+  --color-green: #3fb950;
+  --color-red: #f85149;
+  --color-accent: #7c8cff;
+
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Raw custom properties (not just Tailwind's --color-* namespace) so non-Tailwind consumers —
+   D3 draws directly to SVG attributes, not CSS classes — can reference the same values by name. */
+:root {
+  --ink: var(--color-ink);
+  --paper: var(--color-paper);
+  --green: var(--color-green);
+  --red: var(--color-red);
+  --accent: var(--color-accent);
+  --hairline: rgb(from var(--paper) r g b / 10%);
+}
+
+body {
+  background-color: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+}

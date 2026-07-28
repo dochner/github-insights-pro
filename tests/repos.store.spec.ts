@@ -79,6 +79,70 @@ describe('repos.store', () => {
     expect(store.commitsForRepo(key)).toEqual(commits)
   })
 
+  it('paginates through full pages and accumulates all commits, stopping at a short page', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => makeCommit(`p1-${i}`, 'alice'))
+    const page2 = Array.from({ length: 100 }, (_, i) => makeCommit(`p2-${i}`, 'alice'))
+    const page3 = Array.from({ length: 40 }, (_, i) => makeCommit(`p3-${i}`, 'alice')) // short page: last one
+    mockedFetchGithub.mockResolvedValueOnce(page1)
+    mockedFetchGithub.mockResolvedValueOnce(page2)
+    mockedFetchGithub.mockResolvedValueOnce(page3)
+    const store = useReposStore()
+
+    await store.fetchCommits('vuejs', 'core')
+
+    const key = repoKey('vuejs', 'core')
+    expect(mockedFetchGithub).toHaveBeenCalledTimes(3)
+    expect(mockedFetchGithub).toHaveBeenNthCalledWith(1, 'repos/vuejs/core/commits', expect.objectContaining({ per_page: 100, page: 1 }))
+    expect(mockedFetchGithub).toHaveBeenNthCalledWith(2, 'repos/vuejs/core/commits', expect.objectContaining({ per_page: 100, page: 2 }))
+    expect(mockedFetchGithub).toHaveBeenNthCalledWith(3, 'repos/vuejs/core/commits', expect.objectContaining({ per_page: 100, page: 3 }))
+    expect(store.commitsByRepo[key]).toHaveLength(240)
+    expect(store.commitsForRepo(key)).toEqual([...page1, ...page2, ...page3])
+  })
+
+  it('stops pagination as soon as a page comes back empty', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => makeCommit(`p1-${i}`, 'alice'))
+    mockedFetchGithub.mockResolvedValueOnce(page1)
+    mockedFetchGithub.mockResolvedValueOnce([])
+    const store = useReposStore()
+
+    await store.fetchCommits('vuejs', 'core')
+
+    expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
+    expect(store.commitsByRepo[repoKey('vuejs', 'core')]).toHaveLength(100)
+  })
+
+  it('caps pagination at the page limit for a repo whose commits never run out', async () => {
+    for (let page = 0; page < 6; page += 1) {
+      mockedFetchGithub.mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => makeCommit(`p${page}-${i}`, 'alice')))
+    }
+    const store = useReposStore()
+
+    await store.fetchCommits('vuejs', 'core')
+
+    // 5 pages is the cap: a 6th full page is never requested even though every page so far was full.
+    expect(mockedFetchGithub).toHaveBeenCalledTimes(5)
+    expect(store.commitsByRepo[repoKey('vuejs', 'core')]).toHaveLength(500)
+  })
+
+  it('defaults `since` to roughly 52 weeks back and lets it be overridden per call', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-27T00:00:00.000Z'))
+    mockedFetchGithub.mockResolvedValueOnce([])
+    const store = useReposStore()
+
+    await store.fetchCommits('vuejs', 'core')
+
+    const [, query] = mockedFetchGithub.mock.calls[0]!
+    expect(query).toEqual({ per_page: 100, since: '2025-07-28T00:00:00.000Z', page: 1 })
+
+    mockedFetchGithub.mockResolvedValueOnce([])
+    await store.fetchCommits('vuejs', 'router', { since: '2020-01-01T00:00:00.000Z' })
+    const [, overriddenQuery] = mockedFetchGithub.mock.calls[1]!
+    expect(overriddenQuery).toEqual({ per_page: 100, since: '2020-01-01T00:00:00.000Z', page: 1 })
+
+    vi.useRealTimers()
+  })
+
   it('keeps a shared commit as a single normalized entry across two repos', async () => {
     const shared = makeCommit('shared-sha', 'alice')
     mockedFetchGithub.mockResolvedValueOnce([shared])
@@ -160,6 +224,34 @@ describe('repos.store', () => {
     await firstCall
 
     expect(store.commitsByRepo[key]).toEqual(['fresh-sha'])
+    expect(store.commitsForRepo(key)).toEqual([freshCommit])
+    expect(store.commitsStatusFor(key)).toEqual({ loading: false, error: null })
+  })
+
+  it('discards every page of a call superseded mid-pagination, even pages already fetched', async () => {
+    let resolveStalePage1!: (value: GithubCommit[]) => void
+    const staleFullPage = Array.from({ length: 100 }, (_, i) => makeCommit(`stale-${i}`, 'alice'))
+    mockedFetchGithub.mockReturnValueOnce(new Promise((resolve) => { resolveStalePage1 = resolve }))
+    const store = useReposStore()
+    const key = repoKey('vuejs', 'core')
+
+    // Slower call starts first and is still waiting on its page 1 response.
+    const staleCall = store.fetchCommits('vuejs', 'core')
+
+    // A newer call for the same key starts and fully resolves (single short page) before the stale call's page 1 lands.
+    const freshCommit = makeCommit('fresh-sha', 'bob')
+    mockedFetchGithub.mockResolvedValueOnce([freshCommit])
+    await store.fetchCommits('vuejs', 'core')
+
+    expect(store.commitsForRepo(key)).toEqual([freshCommit])
+
+    // Now the stale call's page 1 finally resolves as a full page, which would normally trigger a page 2 request.
+    resolveStalePage1(staleFullPage)
+    await staleCall
+
+    // The stale call must bail out on the request-id check right after its page 1 resolves: no page 2 request,
+    // and none of its data (not even the already-fetched page 1) ever lands in the store.
+    expect(mockedFetchGithub).toHaveBeenCalledTimes(2)
     expect(store.commitsForRepo(key)).toEqual([freshCommit])
     expect(store.commitsStatusFor(key)).toEqual({ loading: false, error: null })
   })

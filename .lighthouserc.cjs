@@ -10,7 +10,8 @@ module.exports = {
       numberOfRuns: 3,
     },
     assert: {
-      preset: 'lighthouse:recommended',
+      // No preset: `lighthouse:recommended` silently sets many per-audit assertions to
+      // `error`, well beyond the explicit warn-heavy set reasoned about below.
       assertions: {
         // Live GitHub API calls during load make this noisy, so only warn.
         'categories:performance': ['warn', { minScore: 0.5 }],

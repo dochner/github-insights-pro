@@ -10,7 +10,8 @@
     "postinstall": "nuxt prepare",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "lighthouse": "pnpm build && lhci autorun"
   },
   "dependencies": {
     "@pinia/nuxt": "^0.5.0",
@@ -20,6 +21,7 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@lhci/cli": "^0.15.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/d3": "^7.4.0",
     "@vitest/coverage-v8": "^2.1.0",

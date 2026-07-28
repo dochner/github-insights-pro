@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, h, onMounted } from 'vue'
 
 // Hardcoded until a RepoSelector exists (out of scope here): vuejs/core fits the dashboard's
 // own frontend stack and is consistently active enough to produce a meaningful heatmap.
@@ -25,6 +25,23 @@ const heatmapData = computed(() => {
   }
   return Array.from(countsByDay, ([date, count]) => ({ date, count }))
 })
+
+// Tiny inline functional components — not worth a separate file for a two-line render.
+const ChartLoadingState = () => h('p', { class: 'mt-2 text-sm text-[#52514e]' }, 'Loading chart…')
+const ChartErrorState = () => h('p', { class: 'mt-2 text-sm text-red-600' }, 'Failed to load the chart. Try refreshing the page.')
+
+// Splits the d3-dependent heatmap into its own chunk; follow this pattern for future chart imports (e.g. CommitTimeline).
+const ActivityHeatmap = defineAsyncComponent({
+  loader: () => import('~/components/charts/ActivityHeatmap.vue'),
+  loadingComponent: ChartLoadingState,
+  delay: 200, // avoids a loading flash when the chunk is already cached or loads fast
+  errorComponent: ChartErrorState,
+  onError(_error, retry, fail, attempts) {
+    // Only reachable for a fresh client-side mount (e.g. a future v-if'd chart) — during SSR hydration a chunk-fetch failure never reaches this callback, so app/plugins/chunk-reload.client.ts handles that case globally via the vite:preloadError event instead.
+    if (attempts <= 1) retry()
+    else fail()
+  },
+})
 </script>
 
 <template>
@@ -42,7 +59,7 @@ const heatmapData = computed(() => {
             : 'Failed to load commit activity.'
         }}
       </p>
-      <ChartsActivityHeatmap v-else class="mt-2" :data="heatmapData" />
+      <ActivityHeatmap v-else class="mt-2" :data="heatmapData" />
     </section>
   </main>
 </template>

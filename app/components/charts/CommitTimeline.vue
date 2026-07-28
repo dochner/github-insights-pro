@@ -383,7 +383,8 @@ watchEffect(render, { flush: 'post' })
 }
 
 :deep(.axis text) {
-  fill: #898781;
+  /* Darkened from #898781 (~3.5:1, fails AA at 11px) to meet WCAG AA contrast. */
+  fill: #6f6d68;
   font-size: 11px;
 }
 

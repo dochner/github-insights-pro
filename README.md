@@ -73,12 +73,65 @@ Other available scripts: `pnpm test`, `pnpm test:watch`, `pnpm typecheck`,
 
 ## Performance metrics
 
-_To be filled in at the end of the performance phase: Lighthouse score, Core
-Web Vitals (LCP/CLS/INP), and bundle size per route, measured via Lighthouse CI._
+**Lighthouse (CI, `ubuntu-latest`, 3 runs, median):** [full report](https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1785210061849-75805.report.html)
+
+| Category | Score |
+|---|---|
+| Performance | 100 |
+| Accessibility | 100 |
+| Best Practices | 100 |
+| SEO | 100 |
+
+**Core Web Vitals** (from the same run):
+
+| Metric | Value |
+|---|---|
+| LCP (Largest Contentful Paint) | 1.5 s |
+| CLS (Cumulative Layout Shift) | 0 |
+| TBT (Total Blocking Time) | 20 ms |
+| FCP (First Contentful Paint) | 1.5 s |
+
+Two audits are intentionally at `warn`, not `error`, per `.lighthouserc.cjs`
+(the page hits the live GitHub API, so network variance is expected on a
+first CI pass): `render-blocking-resources` (0.5) and `unused-javascript`
+(0). Neither blocks the CI check.
+
+**Bundle size per route** (real `.output/public/_nuxt/` output from a local
+`pnpm build`, raw / gzip):
+
+| Route | Shared entry chunk | Route chunk | Route CSS | Async chart chunk |
+|---|---|---|---|---|
+| `/` | 195.0 KB / 71.1 KB | 5.4 KB / 2.2 KB | 8.2 KB / 2.5 KB | `ActivityHeatmap` (+ D3): 58.9 KB / 20.0 KB, loaded on demand via `defineAsyncComponent` |
+| `/404` (error) | 195.0 KB / 71.1 KB (shared) | 3.6 KB / 1.6 KB | 2.4 KB / 0.8 KB | — |
+| `/500` (error) | 195.0 KB / 71.1 KB (shared) | 3.3 KB / 1.5 KB | 1.9 KB / 0.7 KB | — |
+
+The shared entry chunk (Vue runtime, Pinia, app bootstrap) is fetched once
+and cached by the browser across routes. The D3-dependent `ActivityHeatmap`
+chunk is not part of the initial `/` payload — it's fetched only once the
+async component starts loading, per the `defineAsyncComponent` split
+described above.
+
+**Methodology:** Lighthouse numbers are from the real, published CI run
+above, executed by the `lighthouse.yml` GitHub Actions workflow on
+[PR #18](https://github.com/dochner/github-insights-pro/pull/18) against
+commit `a8b1014`. Bundle sizes were measured locally from a fresh `pnpm
+build` against the same commit, reading actual file sizes in
+`.output/public/_nuxt/` (`.output` is not committed — rebuild locally to
+reproduce). Both are snapshots as of this PR (2026-07-28); rerun
+`pnpm build` and check the `lighthouse.yml` workflow runs for current
+numbers rather than treating these as permanently up to date.
 
 ## Status
 
-Actively in development. Base setup, API proxy, stores, virtualization, web
-worker, and chart components are scaffolded; real data aggregation, TTL
-caching, code-splitting, and the performance/accessibility audit are still in
-progress.
+All planned milestones (`SCRUM-2` through `SCRUM-20`) are complete: setup,
+API proxy, Pinia stores with TTL cache, custom list virtualization, the
+D3 heatmap and commit timeline, the analytics web worker, chart
+code-splitting, and the Lighthouse CI / accessibility audit are all done.
+
+Known rough edges: `CommitTimeline` and `VirtualizedList` are implemented
+and covered by tests (including axe a11y specs) but are not yet wired into
+`app/pages/index.vue` or any other page — the dashboard currently renders
+only the `ActivityHeatmap`. `render-blocking-resources` and
+`unused-javascript` remain at Lighthouse `warn` rather than fully resolved,
+which is the deliberate, documented first-CI-pass posture in
+`.lighthouserc.cjs`, not an oversight.

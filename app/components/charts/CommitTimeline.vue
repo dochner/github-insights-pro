@@ -31,7 +31,8 @@ const props = withDefaults(
   }
 )
 
-const LINE_COLOR = '#2a78d6'
+// Keep in sync with app/assets/css/main.css's --green token — v-bind() below reads it as a plain JS constant since it drives raw SVG paint, not a CSS class.
+const LINE_COLOR = '#3fb950'
 
 const margin = { top: 12, right: 16, bottom: 28, left: 40 }
 
@@ -354,10 +355,10 @@ watchEffect(render, { flush: 'post' })
 
 <template>
   <div class="w-full">
-    <p v-if="loading" class="text-sm text-[#52514e]">Loading commit activity…</p>
-    <p v-else-if="error" class="text-sm text-red-600">Failed to load commit activity.</p>
+    <p v-if="loading" class="muted-text text-sm">Loading commit activity…</p>
+    <p v-else-if="error" class="error-text text-sm">Failed to load commit activity.</p>
     <template v-else>
-      <p v-if="points.length === 0" class="text-sm text-[#52514e]">No commit activity to display.</p>
+      <p v-if="points.length === 0" class="muted-text text-sm">No commit activity to display.</p>
       <svg v-else ref="svgRef" :width="width" :height="height" role="group" :aria-label="svgSummary" />
     </template>
     <div class="sr-only" aria-live="polite">{{ activePointDescription }}</div>
@@ -365,8 +366,16 @@ watchEffect(render, { flush: 'post' })
 </template>
 
 <style scoped>
+.muted-text {
+  color: rgb(from var(--paper) r g b / 55%);
+}
+
+.error-text {
+  color: var(--red);
+}
+
 :deep(.gridlines line) {
-  stroke: #e1e0d9;
+  stroke: rgb(from var(--paper) r g b / 10%);
   shape-rendering: crispEdges;
 }
 
@@ -375,16 +384,16 @@ watchEffect(render, { flush: 'post' })
 }
 
 :deep(.axis path.domain) {
-  stroke: #c3c2b7;
+  stroke: rgb(from var(--paper) r g b / 20%);
 }
 
 :deep(.axis line) {
-  stroke: #e1e0d9;
+  stroke: rgb(from var(--paper) r g b / 10%);
 }
 
 :deep(.axis text) {
-  /* Darkened from #898781 (~3.5:1, fails AA at 11px) to meet WCAG AA contrast. */
-  fill: #6f6d68;
+  fill: rgb(from var(--paper) r g b / 55%);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -422,24 +431,26 @@ watchEffect(render, { flush: 'post' })
 }
 
 :deep(.crosshair-line) {
-  stroke: #52514e;
+  stroke: rgb(from var(--paper) r g b / 30%);
   stroke-width: 1px;
 }
 
 :deep(.crosshair-dot) {
   fill: v-bind(LINE_COLOR);
-  stroke: #ffffff;
+  stroke: var(--ink);
   stroke-width: 2px;
 }
 
 :deep(.tooltip-bg) {
-  fill: #1c1c1a;
-  opacity: 0.92;
+  fill: var(--ink);
+  stroke: rgb(from var(--paper) r g b / 15%);
+  opacity: 0.96;
 }
 
 :deep(.tooltip-label),
 :deep(.tooltip-value) {
-  fill: #ffffff;
+  fill: var(--paper);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
